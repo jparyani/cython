@@ -348,3 +348,93 @@ class CythonDotParallel(object):
 import sys
 sys.modules['cython.parallel'] = CythonDotParallel()
 del sys
+
+import ctypes
+import ctypes.util
+def _ctype_find_func(lib_list, func_name):
+    for lib_name in lib_list:
+        lib_name = lib_name.strip()
+        lib = ctypes.CDLL(ctypes.util.find_library(lib_name))
+        try:
+            getattr(lib, func_name)
+            return getattr(lib, func_name)
+        except AttributeError:
+            pass
+        
+    raise NameError("Function '%s' cannot be found in libs: %s" % (func_name, lib_list))
+
+def ctypes_func(func_name, libs, restype, *argtypes):
+    if isinstance(libs, basestring):
+        libs = [libs]
+
+    ctype_func = _ctype_find_func(libs, func_name)
+    ctype_func.restype = restype
+    
+    ctype_func.argtypes = [t for t in argtypes]
+    
+    ctype_func.__doc__ = u'''%(func_name)s: a ctypes wrapped function
+    returns: %(restype)s
+    args: %(argtypes)s
+    ''' % vars()
+    return ctype_func
+
+def ctypes_struct(fields):
+    class struct(ctypes.Structure):
+        _fields_ = fields
+        
+    return struct
+
+def ctypes_declare(ctypes_t):        
+    return ctypes_t()
+
+class ctypes_extern(object):        
+    def __init__(self, include_file):
+        self.include_file = include_file
+    def __enter__(self, *args):
+        pass
+    def __exit__(self, *args):
+        pass
+    
+
+def ctypes_union(fields, size=None):
+    if size is not None:
+        fields.append(('_pad', ctypes.c_byte*size))
+        
+    class union(ctypes.Union):
+        _fields_ = fields
+        
+    return union
+    
+    
+def ctypes_typedef(ctypes_t):
+    return ctypes_t
+
+def ctypes_isPointer(obj):
+    if isinstance(obj, (ctypes._Pointer, ctypes.c_char_p, ctypes.c_wchar_p, ctypes.c_void_p)):
+        return True
+    return False
+
+def ctypes_classIsPointer(ctypes_t):
+    try:
+        return ctypes._Pointer in ctypes_t.mro()
+    except:
+        pass
+    return False
+        
+def ctypes_cast(obj, ctypes_t):
+    if ctypes_isPointer(obj):
+        if not ctypes_classIsPointer(ctypes_t):
+            obj = ctypes.c_void_p(obj.value)
+    if not ctypes_classIsPointer(ctypes_t):
+        if obj is None:
+            obj = 0
+        return ctypes_t(obj)
+    return ctypes.cast(obj, ctypes_t)
+
+def ctypes_pointer(base_t, numPointer=1):
+    return_t = base_t
+    for i in range(numPointer):
+        return_t = ctypes.POINTER(return_t)
+        
+    return return_t
+    

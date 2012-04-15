@@ -205,11 +205,68 @@ def create_pipeline(context, mode, exclude_classes=()):
             filtered_stages.append(s)
     return filtered_stages
 
+def create_ctypes_pipeline(context, options, result):
+    from Cython.CTypesBackend.ExternDefTransform import ExternDefTransform
+    from Cython.CTypesBackend.CDefVarTransform import CDefVarTransform
+    from Cython.CTypesBackend.CDefVarManipulationTransform import CDefVarManipulationTransform
+    from Cython.CTypesBackend.CImportToImportTransform import CImportToImportTransform
+    from Cython.CTypesBackend.CDefToDefTransform import CDefToDefTransform
+    from Cython.CTypesBackend.PrimaryCmpNodeTransform import PrimaryCmpNodeTransform
+    from Cython.CTypesBackend.TypecastNodeTransform import TypecastNodeTransform
+    from ParseTreeTransforms import NormalizeTree, PostParse
+    from ParseTreeTransforms import AnalyseDeclarationsTransform, AnalyseExpressionsTransform
+    from ParseTreeTransforms import InterpretCompilerDirectives, RemoveUnreachableCode
+    from Cython.CodeWriter import CodeWriter
+    import os
+    import codecs
+
+    def generate_python_code(module_node):
+        cw = CodeWriter()
+        cw.visit(module_node)
+        try:
+            os.makedirs(result.output_dir)
+        except OSError:
+            pass
+        
+        open(os.path.join(result.output_dir, "__init__.py"), "w").close()
+
+        output_file = codecs.open(options.output_file, "w", encoding="utf-8")
+        output_file.write("# -*- encoding: utf-8 -*-\n")
+        output_file.write("\n".join(cw.result.lines))
+        output_file.write("\n")
+        output_file.close()
+
+    def to_pdb(module_node):
+        import ipdb
+        ipdb.set_trace()
+        return module_node
+
+    # Check what optimisations are useful for the Python backend
+    return [
+        InterpretCompilerDirectives(context, context.compiler_directives),
+        RemoveUnreachableCode(context),
+        ExternDefTransform(context),
+        CDefToDefTransform(),
+        CDefVarManipulationTransform(),
+        CDefVarTransform(),
+        CImportToImportTransform(),
+        PrimaryCmpNodeTransform(),
+        TypecastNodeTransform(),
+        generate_python_code,
+    ]
+
 def create_pyx_pipeline(context, options, result, py=False, exclude_classes=()):
     if py:
         mode = 'py'
     else:
         mode = 'pyx'
+    if options.ctypes:
+        result.output_dir=options.output_dir
+        return list(itertools.chain(
+            [parse_stage_factory(context)],
+            create_ctypes_pipeline(context,  options, result),
+            [abort_on_errors],
+            ))
     test_support = []
     if options.evaluate_tree_assertions:
         from Cython.TestUtils import TreeAssertVisitor
@@ -273,7 +330,7 @@ def create_pyx_as_pxd_pipeline(context, result):
         return StatListNode(root.pos, stats=[]), root.scope
     pipeline.append(fake_pxd)
     return pipeline
-
+    
 def insert_into_pipeline(pipeline, transform, before=None, after=None):
     """
     Insert a new transform into the pipeline after or before an instance of

@@ -8,6 +8,7 @@ is preserved (and it could not be as it is not present in the code tree).
 
 from Cython.Compiler.Visitor import TreeVisitor
 from Cython.Compiler.ExprNodes import *
+from Cython.Compiler.Nodes import StatListNode
 
 class LinesResult(object):
     def __init__(self):
@@ -38,6 +39,9 @@ class DeclarationWriter(TreeVisitor):
         self.tempnames = {}
         self.tempblockindex = 0
 
+    def visitList(self, nodeList):
+        self.visit(StatListNode(0, stats=nodeList))
+        
     def write(self, tree):
         self.visit(tree)
         return self.result
@@ -81,20 +85,18 @@ class DeclarationWriter(TreeVisitor):
         self.visitchildren(node)
 
     def visit_StatListNode(self, node):
-        if len(node.stats) == 0:
-            self.line(u"pass")
-        else:
-            self.visitchildren(node)
+        self.visitchildren(node)
     
     def visit_CDefExternNode(self, node):
-        if node.include_file is None:
-            file = u'*'
-        else:
-            file = u'"%s"' % node.include_file
-        self.putline(u"cdef extern from %s:" % file)
-        self.indent()
+#        if node.include_file is None:
+#            file = u'*'
+#        else:
+#            file = u'"%s"' % node.include_file
+#        self.putline(u"cdef extern from %s:" % file)
+#        self.indent()
+        
         self.visit(node.body)
-        self.dedent()
+#        self.dedent()
 
     def visit_CPtrDeclaratorNode(self, node):
         self.put('*')
@@ -111,12 +113,19 @@ class DeclarationWriter(TreeVisitor):
             self.visit(node.dimension)
         self.put(u']')
 
+    def visit_CArrayDeclaratorNode(self, node):
+        self.visit(node.base)
+        self.put(u'[')
+        if node.dimension is not None:
+            self.visit(node.dimension)
+        self.put(u']')
+
     def visit_CFuncDeclaratorNode(self, node):
         # TODO: except, gil, etc.
         self.visit(node.base)
         self.put(u'(')
         self.comma_separated_list(node.args)
-        self.endline(u'):')
+        self.endline(u')')
 
     def visit_CNameDeclaratorNode(self, node):
         self.put(node.name)
@@ -225,16 +234,6 @@ class DeclarationWriter(TreeVisitor):
         self.visit(node.body)
         self.dedent()
 
-    def visit_PyClassDefNode(self, node):
-        self.startline(u"class ")
-        self.put(node.name)
-        if node.classobj.bases:
-            self.visit(node.classobj.bases)
-        self.endline(u":")
-        self.indent()
-        self.visit(node.body)
-        self.dedent()
-
     def visit_CTypeDefNode(self, node):
         self.startline(u"ctypedef ")
         self.visit(node.base_type)
@@ -243,36 +242,18 @@ class DeclarationWriter(TreeVisitor):
         self.endline()
 
     def visit_FuncDefNode(self, node):
-        if node.entry != None:
-            self.startline(u"def %s(" % node.entry.name)
-        else:
-            self.startline(u"def %s(" % node.name)
+        if node.decorators:
+            for decorator in node.decorators:
+                self.visit(decorator)
+        
+        self.startline(u"def %s(" % node.name)
         self.comma_separated_list(node.args)
-        arg_num = len(node.args)
-        if hasattr(node, "star_arg") and node.star_arg:
-            if arg_num > 0:
-                self.put(u", ")
-            self.put(u"*")
-            self.put(node.star_arg.name)
-            arg_num += 1
-        if hasattr(node, "starstar_arg") and node.starstar_arg:
-            if arg_num > 0:
-                self.put(u", ")
-            self.put(u"**")
-            self.put(node.starstar_arg.name)
-
         self.endline(u"):")
         self.indent()
         self.visit(node.body)
         self.dedent()
 
     def visit_CArgDeclNode(self, node):
-        if node.base_type.is_self_arg:
-            self.put(u"self")
-            return
-        if node.base_type.name is not None:
-            self.visit(node.base_type)
-            self.put(u" ")
         self.visit(node.declarator)
         if node.default is not None:
             self.put(u" = ")
@@ -328,12 +309,7 @@ class DeclarationWriter(TreeVisitor):
         self.visit(node.operand2)
 
     def visit_AttributeNode(self, node):
-        if isinstance(node.obj, (AtomicExprNode, AttributeNode)):
-            self.visit(node.obj)
-        else:
-            self.put(u'(')
-            self.visit(node.obj)
-            self.put(u')')
+        self.visit(node.obj)
         self.put(u".%s" % node.attribute)
 
     def visit_BoolNode(self, node):
@@ -342,36 +318,13 @@ class DeclarationWriter(TreeVisitor):
     # FIXME: represent string nodes correctly
     def visit_StringNode(self, node):
         value = node.value
+        if value.encoding is not None:
+            value = value.encode(value.encoding)
         self.put(repr(value))
 
     def visit_PassStatNode(self, node):
         self.startline(u"pass")
         self.endline()
-
-    def visit_ListNode(self, node):
-        self.put(u"[")
-        for arg in node.args:
-            self.visit(arg)
-            self.put(u",")
-        self.put(u"]")
-
-    def visit_TupleNode(self, node):
-        self.put(u"(")
-        for arg in node.args:
-            self.visit(arg)
-            self.put(u",")
-        self.put(u")")
-
-    def visit_UnicodeNode(self, node):
-        self.put(unicode(repr(node.value)))
-
-    def visit_AssertStatNode(self, node):
-        self.startline(u"assert ")
-        self.visit(node.cond)
-        if node.value:
-            self.put(u", ")
-            self.visit(node.value)
-        self.endline(u"")
 
 class CodeWriter(DeclarationWriter):
 
@@ -399,13 +352,7 @@ class CodeWriter(DeclarationWriter):
 
     def visit_ForInStatNode(self, node):
         self.startline(u"for ")
-        if hasattr(node.target, "args"):
-            for i, arg in enumerate(node.target.args):
-                if i != 0:
-                    self.put(u", ")
-                self.visit(arg)
-        else:
-            self.visit(node.target)
+        self.visit(node.target)
         self.put(u" in ")
         self.visit(node.iterator.sequence)
         self.endline(u":")
@@ -444,25 +391,10 @@ class CodeWriter(DeclarationWriter):
         self.comma_separated_list(node.args) # Might need to discover whether we need () around tuples...hmm...
 
     def visit_SimpleCallNode(self, node):
-        if isinstance(node.function, (AtomicExprNode, SimpleCallNode, NameNode, AttributeNode)):
-            self.visit(node.function)
-        else:
-            self.put('(')
-            self.visit(node.function)
-            self.put(')')
-
-        self.put(u'(')
-        if node.args:
-            args = node.args
-        elif node.arg_tuple:
-            args = node.arg_tuple.args
-        else:
-            args = []
-        for i, arg in enumerate(args):
-            if i != 0:
-                self.put(u',')
-            self.visit(arg)
-        self.put(u')')
+        self.visit(node.function)
+        self.put(u"(")
+        self.comma_separated_list(node.args)
+        self.put(")")
 
     def visit_GeneralCallNode(self, node):
         self.visit(node.function)
@@ -535,15 +467,19 @@ class CodeWriter(DeclarationWriter):
 
     def visit_ReturnStatNode(self, node):
         self.startline("return ")
-        if node.value != None:
-            self.visit(node.value)
+        self.visit(node.value)
         self.endline()
 
     def visit_ReraiseStatNode(self, node):
         self.line("raise")
 
     def visit_ImportNode(self, node):
-        self.line(u"import %s" % node.module_name.value)
+        if node.name_list:
+            self.startline(u"from %s import " % node.module_name.value) 
+            self.comma_separated_list(node.name_list)
+            self.endline() 
+        else:
+            self.line(u"import %s" % node.module_name.value)        
 
     def visit_TempsBlockNode(self, node):
         """
@@ -560,7 +496,7 @@ class CodeWriter(DeclarationWriter):
 
     def visit_TempRefNode(self, node):
         self.put(self.tempnames[node.handle])
-
+        
     def visit_BytesNode(self, node):
         # XXX: Is this enough ?
         self.put(unicode(repr(node.value)))
@@ -624,22 +560,20 @@ class CodeWriter(DeclarationWriter):
         self.visit(node.index)
         self.put(u']')
         
-    def visit_NullNode(self, node):
-        self.put(u'None')
-        
-    def visit_RaiseStatNode(self, node):
-        self.startline('raise ')
-        self.visitchildren(node)
-        self.endline()
-        
     def visit_CFuncDefNode(self, node):
-        self.startline('def ')
-        self.visit(node.declarator)
+        if node.decorators:
+            for decorator in node.decorators:
+                self.visit(decorator)
+        
+        self.startline(u"def %s(" % node.declarator.base.name)
+        self.comma_separated_list(node.declarator.args)
+        self.endline(u"):")
         self.indent()
         self.visit(node.body)
         self.dedent()
-        self.endline()
         
+
+
 class PxdWriter(DeclarationWriter):
     def __call__(self, node):
         print u'\n'.join(self.write(node).lines)

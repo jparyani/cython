@@ -282,6 +282,8 @@ packages = [
     'Cython.Tests',
     'Cython.Build.Tests',
     'Cython.Compiler.Tests',
+    'Cython.CTypesBackend',
+    'Cython.CTypesBackend.Tests',
     'Cython.Utility',
     'Cython.Tempita',
 ]

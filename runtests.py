@@ -218,7 +218,7 @@ INCLUDE_DIRS = [ d for d in os.getenv('INCLUDE', '').split(os.pathsep) if d ]
 CFLAGS = os.getenv('CFLAGS', '').split()
 CCACHE = os.getenv('CYTHON_RUNTESTS_CCACHE', '').split()
 
-BACKENDS = ['c', 'cpp']
+BACKENDS = ['c', 'cpp', 'ctypes']
 
 def memoize(f):
     uncomputed = object()
@@ -584,6 +584,7 @@ class CythonCompileTestCase(unittest.TestCase):
             annotate = annotate,
             use_listing_file = False,
             cplus = self.language == 'cpp',
+            ctypes = self.language == 'ctypes',
             language_level = self.language_level,
             generate_pxi = False,
             evaluate_tree_assertions = True,
@@ -1352,6 +1353,9 @@ def main():
     parser.add_option("--no-cpp", dest="use_cpp",
                       action="store_false", default=True,
                       help="do not test C++ compilation backend")
+    parser.add_option("--no-ctypes", dest="use_ctypes",
+                      action="store_false", default=True,
+                      help="do not test ctypes compilation backend")
     parser.add_option("--no-unit", dest="unittests",
                       action="store_false", default=True,
                       help="do not run the unit tests")
@@ -1605,6 +1609,8 @@ def runtests(options, cmd_args):
         if backend == 'c' and not options.use_c:
             continue
         elif backend == 'cpp' and not options.use_cpp:
+            continue
+        elif backend == 'ctypes' and not options.use_ctypes:
             continue
         elif backend not in BACKENDS:
             sys.stderr.write("Unknown backend requested: '%s' not one of [%s]\n" % (

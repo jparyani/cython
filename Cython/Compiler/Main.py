@@ -521,6 +521,8 @@ class CompilationOptions(object):
     language_level    integer   The Python language level: 2 or 3
 
     cplus             boolean   Compile as c++ code
+    ctypes            boolean   Compile as pure python code, with ctypes bindings to C libraries
+    libraries         [string]  List of libraries to link against. Used specifically for ctypes backend.
     """
 
     def __init__(self, defaults = None, **kw):
@@ -708,4 +710,6 @@ default_options = dict(
     language_level = 2,
     gdb_debug = False,
     compile_time_env = None,
+    ctypes = False,
+    libraries = ['c']
 )
